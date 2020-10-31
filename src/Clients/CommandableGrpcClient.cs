@@ -1,4 +1,9 @@
-﻿using System;
+﻿using Commandable;
+using Grpc.Core;
+using PipServices3.Commons.Convert;
+using PipServices3.Commons.Data.Mapper;
+using PipServices3.Commons.Errors;
+using System;
 using System.Net.Http;
 using System.Threading.Tasks;
 
@@ -58,15 +63,16 @@ namespace PipServices3.Grpc.Clients
     /// ...
     /// </code>
     /// </example>
-    public class CommandableHttpClient : RestClient
+    public class CommandableGrpcClient : GrpcClient<Commandable.Commandable.CommandableClient>
     {
+        protected string _name;
+
         /// <summary>
         /// Creates a new instance of the client.
         /// </summary>
-        /// <param name="baseRoute">a base route for remote service.</param>
-        public CommandableHttpClient(string baseRoute)
+        public CommandableGrpcClient(string name)
         {
-            _baseRoute = baseRoute;
+            _name = name;
         }
 
         /// <summary>
@@ -75,27 +81,56 @@ namespace PipServices3.Grpc.Clients
         /// remote method is defined as baseRoute + "/" + name.
         /// </summary>
         /// <typeparam name="T">the class type</typeparam>
-        /// <param name="route">a name of the command to call.</param>
+        /// <param name="name">a name of the command to call.</param>
         /// <param name="correlationId">(optional) transaction id to trace execution through call chain.</param>
         /// <param name="requestEntity">body object.</param>
         /// <returns>result of the command.</returns>
-        public async Task<T> CallCommandAsync<T>(string route, string correlationId, object requestEntity)
+        public async Task<T> CallCommandAsync<T>(string name, string correlationId, object requestEntity)
             where T : class
         {
-            var timing = Instrument(correlationId, _baseRoute + "." + route);
+            var method = _name + '.' + name;
+            var request = new InvokeRequest
+            {
+                Method = method,
+                CorrelationId = correlationId,
+                ArgsEmpty = requestEntity == null,
+                ArgsJson = requestEntity == null ? null : JsonConverter.ToJson(requestEntity)
+            };
+
+            InvokeReply response;
+
+            var timing = Instrument(correlationId, method);
             try
             {
-                return await ExecuteAsync<T>(correlationId, HttpMethod.Post, route, requestEntity);
+                response = await _client.invokeAsync(request, new CallOptions());
             }
             catch (Exception ex)
             {
-                InstrumentError(correlationId, _baseRoute + "." + route, ex);
+                InstrumentError(correlationId, method, ex);
                 throw ex;
             }
             finally
             {
                 timing.EndTiming();
             }
+
+            // Handle error response
+            if (response.Error != null)
+            {
+                var errorDescription = ObjectMapper.MapTo<Commons.Errors.ErrorDescription>(response.Error);
+                throw ApplicationExceptionFactory.Create(errorDescription);
+            }
+
+            // Handle empty response
+            if (response.ResultEmpty || response.ResultJson == null)
+            {
+                return null;
+            }
+
+            // Handle regular response
+            var result = JsonConverter.FromJson<T>(response.ResultJson);
+
+            return result;
         }
     }
 }

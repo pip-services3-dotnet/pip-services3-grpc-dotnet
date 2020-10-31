@@ -1,24 +1,17 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
-using System.IO.Compression;
-using System.Linq;
-using System.Net;
-using System.Security.Claims;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.ResponseCompression;
+using Grpc.Core;
+using Grpc.Core.Interceptors;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.Extensions.DependencyInjection;
 using PipServices3.Commons.Config;
 using PipServices3.Commons.Errors;
 using PipServices3.Commons.Refer;
 using PipServices3.Commons.Run;
+using PipServices3.Commons.Validate;
 using PipServices3.Components.Count;
 using PipServices3.Components.Log;
-using PipServices3.Grpc.Connect;
+using PipServices3.Rpc.Connect;
 
 namespace PipServices3.Grpc.Services
 {
@@ -65,7 +58,7 @@ namespace PipServices3.Grpc.Services
     /// }
     /// </code>
     /// </example>
-    public class HttpEndpoint : IOpenable, IConfigurable, IReferenceable
+    public class GrpcEndpoint : IOpenable, IConfigurable, IReferenceable
     {
         private static readonly ConfigParams _defaultConfig = ConfigParams.FromTuples(
             "connection.protocol", "http",
@@ -91,12 +84,13 @@ namespace PipServices3.Grpc.Services
         private long _fileMaxSize = 200 * 1024 * 1024;
         private bool _responseCompression = false;
 
-        protected IWebHost _server;
+        protected Server _server;
         protected RouteBuilder _routeBuilder;
         protected string _address;
 
         private IList<IRegisterable> _registrations = new List<IRegisterable>();
         private List<Interceptor> _interceptors = new List<Interceptor>();
+        private Dictionary<string, Func<string, Parameters, Task<object>>> _commandableMethods;
 
         /// <summary>
         /// Sets references to this endpoint's logger, counters, and connection resolver.
@@ -153,7 +147,7 @@ namespace PipServices3.Grpc.Services
         /// <summary>
         /// Checks if the component is opened.
         /// </summary>
-        /// <returns>whether or not this endpoint is open with an actively listening REST server.</returns>
+        /// <returns>whether or not this endpoint is open with an actively listening gRPC server.</returns>
         public virtual bool IsOpen()
         {
             return _server != null;
@@ -161,7 +155,7 @@ namespace PipServices3.Grpc.Services
 
         /// <summary>
         /// Opens a connection using the parameters resolved by the referenced connection
-        /// resolver and creates a REST server(service) using the set options and parameters.
+        /// resolver and creates a gRPC server(service) using the set options and parameters.
         /// </summary>
         /// <param name="correlationId">(optional) transaction id to trace execution through call chain.</param>
         public virtual async Task OpenAsync(string correlationId)
@@ -178,70 +172,50 @@ namespace PipServices3.Grpc.Services
 
             try
             {
-                var builder = new WebHostBuilder()
-                    .UseKestrel(options =>
-                    {
-                        // Convert localhost to IP Address
-                        if (host == "localhost")
-                        {
-                            host = IPAddress.Loopback.ToString();
-                        }
-                        
-                        if (protocol == "https")
-                        {
-                            var sslPfxFile = credential.GetAsNullableString("ssl_pfx_file");
-                            var sslPassword = credential.GetAsNullableString("ssl_pfx_file");
-                            
-                            options.Listen(IPAddress.Parse(host), port, listenOptions =>
-                            {
-                                listenOptions.UseHttps(sslPfxFile, sslPassword);
-                            });
-                        }
-                        else
-                        {
-                            options.Listen(IPAddress.Parse(host), port);
-                        }
-                    })
-                    .ConfigureServices(ConfigureServices)
-                    .Configure(ConfigureApplication)
-                    .UseContentRoot(Directory.GetCurrentDirectory());
+                _server = new Server
+                {
+                    Ports = { new ServerPort(host, port, ServerCredentials.Insecure) }
+                };
 
-                _server = builder.Build();
+                _logger.Info(correlationId, "Opened gRPC service at {0}", _address);
+                
+                PerformRegistrations();
+                _server.Start();
 
-                _logger.Info(correlationId, "Opened REST service at {0}", _address);
-
-                await _server.StartAsync();
+                await Task.Delay(0);
             }
             catch (Exception ex)
             {
                 if (_server != null)
                 {
-                    _server.Dispose();
+                    //_server.Dispose();
                     _server = null;
                 }
 
-                throw new ConnectionException(correlationId, "CANNOT_CONNECT", "Opening REST service failed")
+                throw new ConnectionException(correlationId, "CANNOT_CONNECT", "Opening gRPC service failed")
                     .WithCause(ex).WithDetails("url", _address);
             }
         }
 
         /// <summary>
-        /// Closes this endpoint and the REST server (service) that was opened earlier.
+        /// Closes this endpoint and the gRPC server (service) that was opened earlier.
         /// </summary>
         /// <param name="correlationId">(optional) transaction id to trace execution through call chain.</param>
         public virtual Task CloseAsync(string correlationId)
         {
             if (_server != null)
             {
+                _commandableMethods = null;
+
                 // Eat exceptions
                 try
                 {
-                    _server.Dispose();
-                    _logger.Info(correlationId, "Closed REST service at {0}", _address);
+                    _server.ShutdownAsync();
+                    _logger.Info(correlationId, "Closed gRPC service at {0}", _address);
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warn(correlationId, "Failed while closing REST service: {0}", ex);
+                    _logger.Warn(correlationId, "Failed while closing gRPC service: {0}", ex);
                 }
 
                 _server = null;
@@ -251,52 +225,39 @@ namespace PipServices3.Grpc.Services
             return Task.Delay(0);
         }
 
-        private void ConfigureServices(IServiceCollection services)
+        private void PerformRegistrations()
         {
-            if (_responseCompression)
-            {
-                services.AddResponseCompression(options =>
-                {
-                    options.EnableForHttps = true;
-                });
-                
-                services.Configure<BrotliCompressionProviderOptions>(options =>
-                {
-                    options.Level = CompressionLevel.Fastest;
-                });
-            }
-            
-            services.AddRouting();
-
-            services.AddCors(cors => cors.AddPolicy("CorsPolicy", builder =>
-            {
-                builder.AllowAnyHeader()
-                    .AllowAnyMethod()
-                    .AllowAnyOrigin();
-            }));
-        }
-
-        private void ConfigureApplication(IApplicationBuilder applicationBuilder)
-        {
-            _routeBuilder = new RouteBuilder(applicationBuilder);
-
             // Delegate registering routes
             foreach (var registration in _registrations)
             {
                 registration.Register();
             }
-            
-            if (_responseCompression)
-            {
-                applicationBuilder.UseResponseCompression();
-            }
 
-            var routes = _routeBuilder.Build();
-            applicationBuilder
-                .UseCors("CorsPolicy")
-                .UseRouter(routes);
+            RegisterCommandableService();
+        }
 
-            _routeBuilder = null;
+        private void RegisterCommandableService()
+        {
+            if (_commandableMethods == null) return;
+
+            RegisterService(Commandable.Commandable.BindService(new CommandableGrpcServerService(_commandableMethods)));
+        }
+
+        /// <summary>
+        /// Registers a commandable method in this objects GRPC server (service) by the given name.,
+        /// </summary>
+        /// <param name="method">the GRPC method name.</param>
+        /// <param name="schema">the schema to use for parameter validation.</param>
+        /// <param name="action">the action to perform at the given route.</param>
+        public void RegisterCommandableMethod(string method, Schema schema, Func<string, Parameters, Task<object>> action)
+        {
+            _commandableMethods = _commandableMethods ?? new Dictionary<string, Func<string, Parameters, Task<object>>>();
+            _commandableMethods[method] = action;
+        }
+        
+        public void RegisterService(ServerServiceDefinition serverServiceDefinition)
+        {
+            _server.Services.Add(serverServiceDefinition);
         }
 
         /// <summary>
@@ -315,121 +276,6 @@ namespace PipServices3.Grpc.Services
         public void Unregister(IRegisterable registration)
         {
             _registrations.Remove(registration);
-        }
-
-        /// <summary>
-        /// Registers an action in this objects REST server (service) by the given method and route.
-        /// </summary>
-        /// <param name="method">the HTTP method of the route.</param>
-        /// <param name="route">the route to register in this object's REST server (service).</param>
-        /// <param name="action">the action to perform at the given route.</param>
-        public void RegisterRoute(string method, string route,
-            Func<HttpRequest, HttpResponse, RouteData, Task> action)
-        {
-            route = FixRoute(route);
-
-            if (_routeBuilder != null)
-            {
-                method = method.ToUpperInvariant();
-                _routeBuilder.MapVerb(method, route, context =>
-                {
-                    AppendAdditionalParametersFromQuery(route, context.Request);
-                    
-                    var interceptor = _interceptors.Find(i => route.StartsWith(i.Route));
-                    if (interceptor != null)
-                    {
-                        var nextAction = new Func<HttpRequest, HttpResponse, ClaimsPrincipal, RouteData, Task>(
-                            async (request, response, user, routeData) =>
-                            {
-                                await action(request, response, routeData);
-                            });
-
-                        return interceptor.Action.Invoke(context.Request, context.Response, null,
-                            context.GetRouteData(), nextAction);
-                    }
-
-                    return action.Invoke(context.Request, context.Response, context.GetRouteData());
-                });
-            }
-        }
-
-        private void AppendAdditionalParametersFromQuery(string route, HttpRequest request)
-        {
-            if (route.Contains("{") && route.Contains("}"))
-            {
-                var splitRoute = route.Split('/');
-                var splitPath = request.Path.Value.Split('/').Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToArray();
-
-                for (var i = 0; i < splitRoute.Length; i++)
-                {
-                    if (splitPath.Length - 1 < i) break;
-                    
-                    var r = splitRoute[i];
-                    var p = splitPath[i];
-                    if (r.StartsWith("{") && r.EndsWith("}"))
-                    {
-                        var key = r.Substring(1).Substring(0, r.Length - 2);
-                        var value = p;
-                        
-                        request.Headers.Add(key, value);
-                    }
-                }
-            }
-        }
-
-        private string FixRoute(string route)
-        {
-            // Routes cannot start with '/'
-            if (!string.IsNullOrEmpty(route) && route[0] == '/')
-                route = route.Substring(1);
-
-            return route;
-        }
-
-        public void RegisterRouteWithAuth(string method, string route,
-            Func<HttpRequest, HttpResponse, ClaimsPrincipal, RouteData,
-                Func<Task>, Task> authorize,
-            Func<HttpRequest, HttpResponse, ClaimsPrincipal, RouteData, Task> action)
-        {
-            route = FixRoute(route);
-            
-            if (authorize != null)
-            {
-                var nextAction = action;
-
-                action = (request, response, user, routeData) =>
-                {
-                    return authorize(request, response, user, routeData,
-                        async () => await nextAction(request, response, user, routeData));
-                };
-            }
-
-            if (_routeBuilder != null)
-            {
-                method = method.ToUpperInvariant();
-                _routeBuilder.MapVerb(method, route, context =>
-                {
-                    AppendAdditionalParametersFromQuery(route, context.Request);
-                    
-                    var interceptor = _interceptors.Find(i => route.StartsWith(i.Route));
-                    if (interceptor != null)
-                    {
-                        return interceptor.Action.Invoke(context.Request, context.Response, context.User,
-                            context.GetRouteData(),
-                            action);
-                    }
-
-                    return action.Invoke(context.Request, context.Response, context.User, context.GetRouteData());
-                });
-            }
-        }
-
-        public void RegisterInterceptor(string route,
-            Func<HttpRequest, HttpResponse, ClaimsPrincipal, RouteData,
-                Func<HttpRequest, HttpResponse, ClaimsPrincipal, RouteData, Task>, Task> action)
-        {
-            route = FixRoute(route);
-            _interceptors.Add(new Interceptor() {Action = action, Route = route});
         }
     }
 }

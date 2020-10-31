@@ -1,12 +1,17 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Security.Claims;
 using System.Threading.Tasks;
+using Google.Protobuf;
+using Grpc.Core;
+using Grpc.Core.Interceptors;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using PipServices3.Commons.Config;
 using PipServices3.Commons.Errors;
 using PipServices3.Commons.Refer;
 using PipServices3.Commons.Run;
+using PipServices3.Commons.Validate;
 using PipServices3.Components.Count;
 using PipServices3.Components.Log;
 
@@ -75,17 +80,17 @@ namespace PipServices3.Grpc.Services
     /// Console.Out.WriteLine("The REST service is running on port 8080");
     /// </code>
     /// </example>
-    public abstract class RestService: IOpenable, IConfigurable, IReferenceable, IUnreferenceable, IRegisterable
+    public abstract class GrpcService : IOpenable, IConfigurable, IReferenceable, IUnreferenceable, IRegisterable
     {
         private static readonly ConfigParams _defaultConfig = ConfigParams.FromTuples(
-            "base_route", "",
-            "dependencies.endpoint", "pip-services3:endpoint:http:*:1.0"
+            "base_route", ""//,
+            //"dependencies.endpoint", "*:endpoint:grpc:*:1.0"
         );
 
         /// <summary>
         /// The HTTP endpoint that exposes this service.
         /// </summary>
-        protected HttpEndpoint _endpoint;
+        protected GrpcEndpoint _endpoint;
         /// <summary>
         /// The logger.
         /// </summary>
@@ -106,8 +111,17 @@ namespace PipServices3.Grpc.Services
         private ConfigParams _config;
         private IReferences _references;
         private bool _localEndpoint;
+        private List<Interceptor> _interceptors = new List<Interceptor>();
         private bool _opened;
+        protected string _serviceName;
+        private readonly ServerServiceDefinition.Builder _builder = ServerServiceDefinition.CreateBuilder();
+        private readonly Dictionary<Type, object> _messageParsers = new Dictionary<Type, object>();
 
+        public GrpcService(string serviceName)
+        {
+            _serviceName = serviceName;
+        }
+        
         /// <summary>
         /// Configures component by passing configuration parameters.
         /// </summary>
@@ -117,6 +131,7 @@ namespace PipServices3.Grpc.Services
             _config = config.SetDefaults(_defaultConfig);
             _dependencyResolver.Configure(config);
 
+            _serviceName = config.GetAsStringWithDefault("service_name", _serviceName);
             _baseRoute = config.GetAsStringWithDefault("base_route", _baseRoute);
         }
 
@@ -133,7 +148,7 @@ namespace PipServices3.Grpc.Services
             _dependencyResolver.SetReferences(references);
 
             // Get endpoint
-            _endpoint = _dependencyResolver.GetOneOptional("endpoint") as HttpEndpoint;
+            _endpoint = _dependencyResolver.GetOneOptional("endpoint") as GrpcEndpoint;
             _localEndpoint = _endpoint == null;
 
             // Or create a local one
@@ -157,16 +172,16 @@ namespace PipServices3.Grpc.Services
             }
         }
 
-        private HttpEndpoint CreateLocalEndpoint()
+        private GrpcEndpoint CreateLocalEndpoint()
         {
-            var endpoint = new HttpEndpoint();
-    
+            var endpoint = new GrpcEndpoint();
+
             if (_config != null)
                 endpoint.Configure(_config);
 
             if (_references != null)
                 endpoint.SetReferences(_references);
-    
+
             return endpoint;
         }
 
@@ -227,7 +242,7 @@ namespace PipServices3.Grpc.Services
 
             if (_localEndpoint)
             {
-                await _endpoint.OpenAsync(correlationId).ContinueWith(task => 
+                await _endpoint.OpenAsync(correlationId).ContinueWith(task =>
                 {
                     _opened = task.Exception == null;
                 });
@@ -264,115 +279,70 @@ namespace PipServices3.Grpc.Services
         }
 
         /// <summary>
-        /// Sends error serialized as ErrorDescription object and appropriate HTTP status
-        /// code.If status code is not defined, it uses 500 status code.
+        /// Registers a commandable method in this objects GRPC server (service) by the given name.
         /// </summary>
-        /// <param name="response">a Http response</param>
-        /// <param name="ex">an error object to be sent.</param>
-        protected Task SendErrorAsync(HttpResponse response, Exception ex)
+        /// <param name="method">the GRPC method name.</param>
+        /// <param name="schema">the schema to use for parameter validation.</param>
+        /// <param name="action">the action to perform at the given route.</param>
+        protected void RegisterCommandableMethod(string method, Schema schema, Func<string, Parameters, Task<object>> action)
         {
-            return HttpResponseSender.SendErrorAsync(response, ex);
+            _endpoint.RegisterCommandableMethod(method, schema, action);
         }
 
         /// <summary>
-        /// Sends error serialized as ErrorDescription object and appropriate HTTP status
-        /// code.If status code is not defined, it uses 500 status code.
+        /// Registers a method in GRPC service.
         /// </summary>
-        /// <param name="response">a Http response</param>
-        /// <param name="ex">an error object to be sent.</param>
-        protected Task SendResultAsync(HttpResponse response, object result)
+        /// <typeparam name="TRequest"></typeparam>
+        /// <typeparam name="TResponse"></typeparam>
+        /// <param name="name"></param>
+        /// <param name="handler"></param>
+        protected void RegisterMethod<TRequest, TResponse>(string name, UnaryServerMethod<TRequest, TResponse> handler)
+            where TRequest : class, IMessage<TRequest>, new()
+            where TResponse : class, IMessage<TResponse>, new()
         {
-            return HttpResponseSender.SendResultAsync(response, result);
+            var requestParser = GetOrCreateMessageParser<TRequest>();
+            var responseParser = GetOrCreateMessageParser<TResponse>();
+
+            var method = new Method<TRequest, TResponse>(
+             MethodType.Unary,
+              _serviceName,
+              name,
+              Marshallers.Create((arg) => arg != null ? MessageExtensions.ToByteArray(arg) : Array.Empty<byte>(), requestParser.ParseFrom),
+              Marshallers.Create((arg) => arg != null ? MessageExtensions.ToByteArray(arg) : Array.Empty<byte>(), responseParser.ParseFrom));
+
+            _builder.AddMethod(method, handler);
+        }
+
+        private MessageParser<T> GetOrCreateMessageParser<T>()
+          where T : class, IMessage<T>, new()
+        {
+            if (_messageParsers.TryGetValue(typeof(T), out object o_parser))
+                return o_parser as MessageParser<T>;
+
+            MessageParser<T> parser = new MessageParser<T>(() => new T());
+            _messageParsers.Add(typeof(T), parser);
+
+            return parser;
         }
 
         /// <summary>
-        /// Creates a callback function that sends an empty result with 204 status code.
-        /// If error occur it sends ErrorDescription with approproate status code.
-        /// </summary>
-        /// <param name="response">aHttp response</param>
-        protected Task SendEmptyResultAsync(HttpResponse response)
-        {
-            return HttpResponseSender.SendEmptyResultAsync(response);
-        }
-
-        /// <summary>
-        /// Creates a callback function that sends newly created object as JSON. That
-        /// callack function call be called directly or passed as a parameter to business logic components.
+        /// Registers all service routes in HTTP endpoint.
         /// 
-        /// If object is not null it returns 201 status code. For null results it returns
-        /// 204 status code. If error occur it sends ErrorDescription with approproate status code.
+        /// This method is called by the service and must be overriden
+        /// in child classes.
         /// </summary>
-        /// <param name="response">a Http response</param>
-        /// <param name="result">a body object to created result</param>
-        protected Task SendCreatedResultAsync(HttpResponse response, object result)
-        {
-            return HttpResponseSender.SendCreatedResultAsync(response, result);
-        }
-
-        /// <summary>
-        /// Creates a callback function that sends deleted object as JSON. That callack
-        /// function call be called directly or passed as a parameter to business logic components.
-        /// 
-        /// If object is not null it returns 200 status code. For null results it returns
-        /// 204 status code. If error occur it sends ErrorDescription with approproate status code.
-        /// </summary>
-        /// <param name="response">a Http response</param>
-        /// <param name="result">a body object to deleted result</param>
-        protected Task SendDeletedAsync(HttpResponse response, object result)
-        {
-            return HttpResponseSender.SendDeletedResultAsync(response, result);
-        }
-        
-        private string AppendBaseRoute(string route) {
-            if (!string.IsNullOrEmpty(_baseRoute)) {
-                var baseRoute = _baseRoute;
-                if (string.IsNullOrEmpty(route))
-                    route = "/";
-                if (route[0] != '/')
-                    route = "/" + route;
-                if (baseRoute[0] != '/') baseRoute = '/' + baseRoute;
-                route = baseRoute + route;
-            }
-
-            return route;
-        }
-
-        /// <summary>
-        /// Registers a route in HTTP endpoint.
-        /// </summary>
-        /// <param name="method">HTTP method: "get", "head", "post", "put", "delete"</param>
-        /// <param name="route">a command route. Base route will be added to this route</param>
-        /// <param name="action">an action function that is called when operation is invoked.</param>
-        protected virtual void RegisterRoute(string method, string route,
-             Func<HttpRequest, HttpResponse, RouteData, Task> action)
-        {
-            if (_endpoint == null) return;
-
-            route = AppendBaseRoute(route);
-            _endpoint.RegisterRoute(method, route, action);
-        }
-        
-        protected virtual void RegisterRouteWithAuth(string method, string route,
-            Func<HttpRequest, HttpResponse, ClaimsPrincipal, RouteData, Func<Task>, Task> autorize,
-            Func<HttpRequest, HttpResponse, ClaimsPrincipal, RouteData, Task> action)
-        {
-            if (_endpoint == null) return;
-
-            route = AppendBaseRoute(route);
-            _endpoint.RegisterRouteWithAuth(method, route, autorize, action);
-        }   
-        
-        public void RegisterInterceptor(string route,
-            Func<HttpRequest, HttpResponse, ClaimsPrincipal, RouteData,
-                Func<HttpRequest, HttpResponse, ClaimsPrincipal, RouteData, Task>, Task> action)
-        {
-            if (_endpoint == null) return;
-            
-            route = AppendBaseRoute(route);
-            _endpoint.RegisterInterceptor(route, action);
-        }
-
-        public virtual void Register()
+        protected virtual void OnRegister()
         { }
+
+        public void Register()
+        {
+            OnRegister();
+
+            var serviceDefinitions = _builder
+                .Build()
+                .Intercept(_interceptors.ToArray());
+
+            _endpoint.RegisterService(serviceDefinitions);
+        }
     }
 }

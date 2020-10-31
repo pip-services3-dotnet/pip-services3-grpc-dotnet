@@ -1,0 +1,34 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>PipServices3.Rpc.Example</AssemblyName>
+    <RootNamespace>PipServices3.Rpc</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\src\src.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Rest\DummyCommandableHttpServiceV2.cs" />
+    <Compile Remove="Rest\DummyCommandableHttpServiceV2.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Protos\dummies.proto" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.13.0" />
+    <PackageReference Include="Grpc" Version="2.33.1" />
+    <PackageReference Include="Grpc.Tools" Version="2.23.0" PrivateAssets="All" />
+    <PackageReference Include="PipServices3.Commons" Version="3.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="Protos\dummies.proto" />
+  </ItemGroup>
+  
+</Project>
