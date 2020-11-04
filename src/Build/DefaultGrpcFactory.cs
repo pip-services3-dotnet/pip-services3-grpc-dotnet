@@ -15,24 +15,16 @@ namespace PipServices3.Grpc.Build
     {
         public static Descriptor Descriptor = new Descriptor("pip-services", "factory", "grpc", "default", "1.0");
         public static Descriptor Descriptor3 = new Descriptor("pip-services3", "factory", "grpc", "default", "1.0");
-        public static Descriptor HttpEndpointDescriptor = new Descriptor("pip-services", "endpoint", "http", "*", "1.0");
-        public static Descriptor HttpEndpoint3Descriptor = new Descriptor("pip-services3", "endpoint", "http", "*", "1.0");
-        public static Descriptor StatusServiceDescriptor = new Descriptor("pip-services", "status-service", "http", "*", "1.0");
-        public static Descriptor StatusService3Descriptor = new Descriptor("pip-services3", "status-service", "http", "*", "1.0");
-        public static Descriptor HeartbeatServiceDescriptor = new Descriptor("pip-services", "heartbeat-service", "http", "*", "1.0");
-        public static Descriptor HeartbeatService3Descriptor = new Descriptor("pip-services3", "heartbeat-service", "http", "*", "1.0");
+        public static Descriptor GrpcEndpointDescriptor = new Descriptor("pip-services", "endpoint", "grpc", "*", "1.0");
+        public static Descriptor GrpcEndpoint3Descriptor = new Descriptor("pip-services3", "endpoint", "grpc", "*", "1.0");
 
         /// <summary>
         /// Create a new instance of the factory.
         /// </summary>
         public DefaultGrpcFactory()
         {
-            RegisterAsType(HttpEndpointDescriptor, typeof(HttpEndpoint));
-            RegisterAsType(HttpEndpoint3Descriptor, typeof(HttpEndpoint));
-            RegisterAsType(StatusServiceDescriptor, typeof(StatusRestService));
-            RegisterAsType(StatusService3Descriptor, typeof(StatusRestService));
-            RegisterAsType(HeartbeatServiceDescriptor, typeof(HeartbeatRestService));
-            RegisterAsType(HeartbeatService3Descriptor, typeof(HeartbeatRestService));
+            RegisterAsType(GrpcEndpointDescriptor, typeof(HttpEndpoint));
+            RegisterAsType(GrpcEndpoint3Descriptor, typeof(HttpEndpoint));
         }
     }
 }

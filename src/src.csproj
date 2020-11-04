@@ -6,10 +6,10 @@
     <AssemblyName>PipServices3.Grpc</AssemblyName>
     <ApplicationIcon />
     <Win32Resource />
-    <Version>3.3.1</Version>
-    <Authors>Sergey Seroukhov, Volodymyr Tkachenko, Alex Mazur, Alexey Dvoykin, Danyil Tretiakov</Authors>
+    <Version>3.0.0</Version>
+    <Authors>Sergey Seroukhov, Denis Kuznetsov</Authors>
     <Copyright>Conceptual Vision Consulting LLC. 2017-2020</Copyright>
-    <Description>Remove procedure calls for Pip.Services in .NET</Description>
+    <Description>gRPC remote procedure calls for Pip.Services in .NET</Description>
     <Company>Conceptual Vision Consulting LLC.</Company>
     <Product>PipServices3.Grpc</Product>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -20,7 +20,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Build\DefaultGrpcFactory.cs" />
+  </ItemGroup>
+
+  <!--<ItemGroup>
     <None Remove="Protos\commandable.proto" />
+    <None Remove="Protos\Commandable.cs" />
+    <None Remove="Protos\CommandableGrpc.cs" />
+  </ItemGroup>-->
+
+  <ItemGroup>
+    <None Include="Build\DefaultGrpcFactory.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -37,7 +47,7 @@
     <PackageReference Include="PipServices3.Rpc" Version="3.3.1" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Protobuf Include="Protos\commandable.proto" />
-  </ItemGroup>
+  <!--<ItemGroup>
+    <Protobuf Include="Protos\commandable.proto" OutputDir="%(RelativeDir)\.." />
+  </ItemGroup>-->
 </Project>

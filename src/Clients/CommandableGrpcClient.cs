@@ -1,11 +1,11 @@
-﻿using Commandable;
-using Grpc.Core;
+﻿using Grpc.Core;
 using PipServices3.Commons.Convert;
 using PipServices3.Commons.Data.Mapper;
 using PipServices3.Commons.Errors;
+using PipServices3.Grpc.Services;
 using System;
-using System.Net.Http;
 using System.Threading.Tasks;
+using static PipServices3.Grpc.Services.Commandable;
 
 namespace PipServices3.Grpc.Clients
 {
@@ -63,22 +63,25 @@ namespace PipServices3.Grpc.Clients
     /// ...
     /// </code>
     /// </example>
-    public class CommandableGrpcClient : GrpcClient<Commandable.Commandable.CommandableClient>
+    public class CommandableGrpcClient: GrpcClient
     {
         protected string _name;
 
+        public CommandableGrpcClient()
+            : this("commandable.Commandable")
+        { 
+        }
         /// <summary>
         /// Creates a new instance of the client.
         /// </summary>
         public CommandableGrpcClient(string name)
+            : base(name)
         {
             _name = name;
         }
 
         /// <summary>
-        /// Calls a remote method via HTTP commadable protocol. The call is made via POST
-        /// operation and all parameters are sent in body object. The complete route to
-        /// remote method is defined as baseRoute + "/" + name.
+        /// Calls a remote method via gRPC commadable protocol.
         /// </summary>
         /// <typeparam name="T">the class type</typeparam>
         /// <param name="name">a name of the command to call.</param>
@@ -102,7 +105,7 @@ namespace PipServices3.Grpc.Clients
             var timing = Instrument(correlationId, method);
             try
             {
-                response = await _client.invokeAsync(request, new CallOptions());
+                response = await CallAsync<InvokeRequest, InvokeReply>("invoke", request);
             }
             catch (Exception ex)
             {

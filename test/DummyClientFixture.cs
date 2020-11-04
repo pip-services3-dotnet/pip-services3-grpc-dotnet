@@ -16,7 +16,7 @@ namespace PipServices3.Grpc
             _client = client;
         }
 
-        public async Task TestCrudOperations()
+        public async Task TestCrudOperationsAsync()
         {
             // Create one dummy
             var dummy1 = await _client.CreateAsync("1", _dummy1);

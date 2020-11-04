@@ -13,13 +13,13 @@ using Xunit;
 
 namespace PipServices3.Grpc.Services
 {
-    public class DummyRestServiceTest : IDisposable
+    public class DummyGrpcServiceTest : IDisposable
     {
         private readonly DummyGrpcClient client;
         private readonly DummyGrpcService service;
         private readonly string correlationId;
 
-        public DummyRestServiceTest()
+        public DummyGrpcServiceTest()
         {
             correlationId = IdGenerator.NextLong();
 

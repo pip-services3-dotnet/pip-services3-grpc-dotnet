@@ -1,26 +1,18 @@
-using System;
 using System.Linq;
-using System.Security.Claims;
 using System.Threading.Tasks;
-using Dummies;
 using Grpc.Core;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Routing;
 using PipServices3.Commons.Refer;
-using PipServices3.Grpc;
-using PipServices3.Grpc.Services;
-using ProtoDummy = Dummies.Dummy;
-using Dummy = PipServices3.Grpc.Dummy;
+using PipServices3.Grpc.Protos;
+using ProtoDummy = PipServices3.Grpc.Protos.Dummy;
 
-namespace PipServices3.Rpc.Services
+namespace PipServices3.Grpc.Services
 {
-    public class DummyGrpcService : GrpcService
+	public class DummyGrpcService : GrpcService
     {
         private IDummyController _controller;
-        private int _numberOfCalls = 0;
 
         public DummyGrpcService()
-            : base("dummies.Dummies")
+            : base("dummies")
         {
             _dependencyResolver.Put("controller", new Descriptor("pip-services3-dummies", "controller", "default", "*", "*"));
         }
@@ -30,18 +22,6 @@ namespace PipServices3.Rpc.Services
             base.SetReferences(references);
 
             _controller = _dependencyResolver.GetOneRequired<IDummyController>("controller");
-        }
-
-        public int GetNumberOfCalls()
-        {
-            return _numberOfCalls;
-        }
-
-        private async Task IncrementNumberOfCallsAsync(HttpRequest req, HttpResponse res, ClaimsPrincipal user, RouteData rd,
-            Func<HttpRequest, HttpResponse, ClaimsPrincipal, RouteData, Task> next)
-        {
-            _numberOfCalls++;
-            await next(req, res, user, rd);
         }
 
         public async Task<DummiesPage> GetDummies(DummiesPageRequest request, ServerCallContext context)

@@ -8,8 +8,12 @@ namespace PipServices3.Rpc.Clients
 {
     public sealed class DummyCommandableGrpcClient : CommandableGrpcClient, IDummyClient
     {
-        public DummyCommandableGrpcClient() 
-            : base("dummies.Dummies")
+        public DummyCommandableGrpcClient()
+            : base()
+        { }
+
+        public DummyCommandableGrpcClient(string name) 
+            : base(name)
         { }
 
         public Task<DataPage<Dummy>> GetPageByFilterAsync(string correlationId, FilterParams filter, PagingParams paging)

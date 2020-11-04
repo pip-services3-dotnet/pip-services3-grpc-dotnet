@@ -1,4 +1,5 @@
-﻿using Grpc.Core;
+﻿using Google.Protobuf;
+using Grpc.Core;
 using PipServices3.Commons.Config;
 using PipServices3.Commons.Refer;
 using PipServices3.Commons.Run;
@@ -6,30 +7,27 @@ using PipServices3.Components.Count;
 using PipServices3.Components.Log;
 using PipServices3.Rpc.Connect;
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
 namespace PipServices3.Grpc.Clients
 {
-	public class GrpcClient<T> : IOpenable, IConfigurable, IReferenceable
-		where T : ClientBase<T>
+	public class GrpcClient: IOpenable, IConfigurable, IReferenceable
 	{
 		private static readonly ConfigParams _defaultConfig = ConfigParams.FromTuples(
 			"connection.protocol", "http",
 			"connection.host", "0.0.0.0",
 			"connection.port", 3000,
 
-			"options.request_max_size", 1024*1024,
+			"options.request_max_size", 1024 * 1024,
 			"options.connect_timeout", 10000,
 			"options.timeout", 10000,
 			"options.retries", 3,
 			"options.debug", true
 		);
 
-		/// <summary>
-		/// The GRPC client
-		/// </summary>
-		protected T _client;
+		protected CallInvoker _callInvoker;
 
 		protected Channel _channel;
 
@@ -54,6 +52,16 @@ namespace PipServices3.Grpc.Clients
 		/// he connection timeout in milliseconds.
 		/// </summary>
 		protected int _connectTimeout = 10000;
+
+		protected string _serviceName;
+
+		private readonly Dictionary<Type, object> _messageParsers = new Dictionary<Type, object>();
+		private readonly Dictionary<string, object> _methods = new Dictionary<string, object>();
+
+		public GrpcClient(string name = null)
+		{
+			_serviceName = name;
+		}
 
 		/// <summary>
 		/// Sets references to dependent components.
@@ -86,7 +94,7 @@ namespace PipServices3.Grpc.Clients
 		/// <returns>true if the component has been opened and false otherwise.</returns>
 		public virtual bool IsOpen()
 		{
-			return _client != null;
+			return _channel != null;
 		}
 
 		/// <summary>
@@ -97,13 +105,63 @@ namespace PipServices3.Grpc.Clients
 		{
 			var connection = await _connectionResolver.ResolveAsync(correlationId);
 
-			var uri = connection.Uri;
 			var host = connection.Host;
 			var port = connection.Port;
 
 			_channel = new Channel(string.Format("{0}:{1}", host, port), ChannelCredentials.Insecure);
 
-			_client = (T)Activator.CreateInstance(typeof(T), _channel);
+			_callInvoker = new DefaultCallInvoker(_channel);
+		}
+
+		protected async Task<TResponse> CallAsync<TRequest, TResponse>(string name, TRequest request)
+			where TRequest : class, IMessage<TRequest>, new()
+			where TResponse : class, IMessage<TResponse>, new()
+		{
+			var method = GetOrCreateMethod<TRequest, TResponse>(name);
+			var options = new CallOptions();
+
+			return await _callInvoker.AsyncUnaryCall(method, null, options, request);
+		}
+
+		/// <summary>
+		/// Creates a method definition to be called using GRPC.
+		/// </summary>
+		/// <typeparam name="TRequest">type of request message</typeparam>
+		/// <typeparam name="TResponse">type of response message</typeparam>
+		/// <param name="name">name of gRPC method</param>
+		protected Method<TRequest, TResponse> GetOrCreateMethod<TRequest, TResponse>(string name)
+			where TRequest : class, IMessage<TRequest>, new()
+			where TResponse : class, IMessage<TResponse>, new()
+		{
+			if (!_methods.TryGetValue(name, out object method))
+			{
+				var requestParser = GetOrCreateMessageParser<TRequest>();
+				var responseParser = GetOrCreateMessageParser<TResponse>();
+
+				var clientMethod = new Method<TRequest, TResponse>(
+				 MethodType.Unary,
+				  _serviceName,
+				  name,
+				  Marshallers.Create((arg) => arg != null ? MessageExtensions.ToByteArray(arg) : Array.Empty<byte>(), requestParser.ParseFrom),
+				  Marshallers.Create((arg) => arg != null ? MessageExtensions.ToByteArray(arg) : Array.Empty<byte>(), responseParser.ParseFrom));
+
+				_methods.Add(name, clientMethod);
+				return clientMethod;
+			}
+
+			return (Method<TRequest, TResponse>)method;
+		}
+
+		private MessageParser<T> GetOrCreateMessageParser<T>()
+			where T : class, IMessage<T>, new()
+		{
+			if (_messageParsers.TryGetValue(typeof(T), out object o_parser))
+				return o_parser as MessageParser<T>;
+
+			MessageParser<T> parser = new MessageParser<T>(() => new T());
+			_messageParsers.Add(typeof(T), parser);
+
+			return parser;
 		}
 
 		/// <summary>

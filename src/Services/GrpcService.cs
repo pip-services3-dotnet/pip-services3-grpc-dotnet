@@ -83,8 +83,7 @@ namespace PipServices3.Grpc.Services
     public abstract class GrpcService : IOpenable, IConfigurable, IReferenceable, IUnreferenceable, IRegisterable
     {
         private static readonly ConfigParams _defaultConfig = ConfigParams.FromTuples(
-            "base_route", ""//,
-            //"dependencies.endpoint", "*:endpoint:grpc:*:1.0"
+            "dependencies.endpoint", "*:endpoint:grpc:*:1.0"
         );
 
         /// <summary>
@@ -103,10 +102,6 @@ namespace PipServices3.Grpc.Services
         /// The dependency resolver.
         /// </summary>
         protected DependencyResolver _dependencyResolver = new DependencyResolver(_defaultConfig);
-        /// <summary>
-        /// The base route.
-        /// </summary>
-        protected string _baseRoute;
 
         private ConfigParams _config;
         private IReferences _references;
@@ -132,7 +127,6 @@ namespace PipServices3.Grpc.Services
             _dependencyResolver.Configure(config);
 
             _serviceName = config.GetAsStringWithDefault("service_name", _serviceName);
-            _baseRoute = config.GetAsStringWithDefault("base_route", _baseRoute);
         }
 
         /// <summary>
@@ -264,7 +258,7 @@ namespace PipServices3.Grpc.Services
             {
                 if (_endpoint == null)
                 {
-                    throw new InvalidStateException(correlationId, "NO_ENDPOINT", "HTTP endpoint is missing");
+                    throw new InvalidStateException(correlationId, "NO_ENDPOINT", "gRPC endpoint is missing");
                 }
 
                 if (_localEndpoint)
@@ -276,17 +270,6 @@ namespace PipServices3.Grpc.Services
             }
 
             return Task.Delay(0);
-        }
-
-        /// <summary>
-        /// Registers a commandable method in this objects GRPC server (service) by the given name.
-        /// </summary>
-        /// <param name="method">the GRPC method name.</param>
-        /// <param name="schema">the schema to use for parameter validation.</param>
-        /// <param name="action">the action to perform at the given route.</param>
-        protected void RegisterCommandableMethod(string method, Schema schema, Func<string, Parameters, Task<object>> action)
-        {
-            _endpoint.RegisterCommandableMethod(method, schema, action);
         }
 
         /// <summary>
@@ -326,13 +309,14 @@ namespace PipServices3.Grpc.Services
         }
 
         /// <summary>
-        /// Registers all service routes in HTTP endpoint.
+        /// Registers all service routes in gRPC endpoint.
         /// 
         /// This method is called by the service and must be overriden
         /// in child classes.
         /// </summary>
         protected virtual void OnRegister()
-        { }
+        { 
+        }
 
         public void Register()
         {

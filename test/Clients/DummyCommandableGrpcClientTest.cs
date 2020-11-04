@@ -11,9 +11,9 @@ using Xunit;
 
 namespace PipServices3.Grpc.Clients
 {
-    public sealed class DummyCommandableHttpClientTest : IDisposable
+    public sealed class DummyCommandableGrpcClientTest : IDisposable
     {
-        private static readonly ConfigParams RestConfig = ConfigParams.FromTuples(
+        private static readonly ConfigParams GrpcConfig = ConfigParams.FromTuples(
             "connection.uri", "http://localhost:3000",
             "options.timeout", 15000
             //"connection.protocol", "http",
@@ -24,11 +24,10 @@ namespace PipServices3.Grpc.Clients
         private readonly DummyController _ctrl;
         private readonly DummyCommandableGrpcClient _client;
         private readonly DummyClientFixture _fixture;
-        private readonly CancellationTokenSource _source;
 
         private readonly DummyCommandableGrpcService _service;
 
-        public DummyCommandableHttpClientTest()
+        public DummyCommandableGrpcClientTest()
         {
             _ctrl = new DummyController();
 
@@ -38,11 +37,11 @@ namespace PipServices3.Grpc.Clients
 
             var references = References.FromTuples(
                 new Descriptor("pip-services3-dummies", "controller", "default", "default", "1.0"), _ctrl,
-                new Descriptor("pip-services3-dummies", "service", "rest", "default", "1.0"), _service,
-                new Descriptor("pip-services3-dummies", "client", "rest", "default", "1.0"), _client
+                new Descriptor("pip-services3-dummies", "service", "grpc", "default", "1.0"), _service,
+                new Descriptor("pip-services3-dummies", "client", "grpc", "default", "1.0"), _client
             );
-            _service.Configure(RestConfig);
-            _client.Configure(RestConfig);
+            _service.Configure(GrpcConfig);
+            _client.Configure(GrpcConfig);
 
             _client.SetReferences(references);
             _service.SetReferences(references);
@@ -51,25 +50,19 @@ namespace PipServices3.Grpc.Clients
 
             _fixture = new DummyClientFixture(_client);
 
-            _source = new CancellationTokenSource();
-
             _client.OpenAsync(null).Wait();
         }
 
         [Fact]
-        public void TestCrudOperations()
+        public async Task TestCrudOperationsAsync()
         {
-            var task = _fixture.TestCrudOperations();
-            task.Wait();
+            await _fixture.TestCrudOperationsAsync();
         }
 
         public void Dispose()
         {
-            var task = _client.CloseAsync(null);
-            task.Wait();
-
-            task = _service.CloseAsync(null);
-            task.Wait();
+            _client.CloseAsync(null).Wait();
+            _service.CloseAsync(null).Wait();
         }
     }
 }

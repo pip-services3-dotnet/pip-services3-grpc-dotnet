@@ -1,10 +1,13 @@
-﻿using System;
-using System.IO;
-using System.Threading;
-using Commandable;
+﻿using Grpc.Core;
 using PipServices3.Commons.Commands;
 using PipServices3.Commons.Convert;
+using PipServices3.Commons.Data.Mapper;
+using PipServices3.Commons.Errors;
 using PipServices3.Commons.Run;
+using PipServices3.Commons.Validate;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace PipServices3.Grpc.Services
 {
@@ -65,14 +68,23 @@ namespace PipServices3.Grpc.Services
 	/// </example>
 	public class CommandableGrpcService : GrpcService
 	{
+		private Dictionary<string, Func<string, Parameters, Task<object>>> _commandableMethods;
+
 		/// <summary>
 		/// Creates a new instance of the service.
 		/// </summary>
-		/// <param name="baseRoute">a service base route.</param>
-		public CommandableGrpcService(string serviceName)
-			: base(serviceName)
+		/// <param name="name">service name</param>
+		public CommandableGrpcService(string name = null)
+			: base(name ?? "commandable.Commandable")
 		{
 			_dependencyResolver.Put("controller", "none");
+		}
+
+		public override Task CloseAsync(string correlationId)
+		{
+			_commandableMethods = null;
+
+			return base.CloseAsync(correlationId);
 		}
 
 		/// <summary>
@@ -80,21 +92,97 @@ namespace PipServices3.Grpc.Services
 		/// </summary>
 		protected override void OnRegister()
 		{
+			RegisterMethod<InvokeRequest, InvokeReply>("invoke", Invoke);
+			RegisterCommandableMethods();
+		}
+
+		private void RegisterCommandableMethods()
+		{
 			var controller = _dependencyResolver.GetOneRequired<ICommandable>("controller");
 			var commands = controller.GetCommandSet().Commands;
+
+			_commandableMethods = _commandableMethods ?? new Dictionary<string, Func<string, Parameters, Task<object>>>();
 
 			foreach (var command in commands)
 			{
 				var method = _serviceName + '.' + command.Name;
 
-				RegisterCommandableMethod(method, command.Schema, async (correlationId, args) =>
+				_commandableMethods[method] = async (correlationId, args) =>
 				{
 					using (var timing = Instrument(correlationId, method))
 					{
 						return await command.ExecuteAsync(correlationId, args);
 					}
-				});
+				};
 			}
+		}
+
+		protected async Task<InvokeReply> Invoke(InvokeRequest request, ServerCallContext context)
+		{
+			var method = request.Method;
+			var correlationId = request.CorrelationId;
+			var action = _commandableMethods?[method];
+
+			// Handle method not found
+			if (action == null)
+			{
+				var err = new InvocationException(correlationId, "METHOD_NOT_FOUND", "Method " + method + " was not found")
+					.WithDetails("method", method);
+
+				return CreateErrorResponse(err);
+			}
+
+			try
+			{
+				// Convert arguments
+				var argsEmpty = request.ArgsEmpty;
+				var argsJson = request.ArgsJson;
+				var args = !argsEmpty && !string.IsNullOrWhiteSpace(argsJson)
+					? Parameters.FromJson(argsJson)
+					: new Parameters();
+
+				// Todo: Validate schema
+				//var schema = this._commandableSchemas[method];
+				//if (schema)
+				//{
+				//    //...
+				//}
+
+				// Call command action
+				var result = await action(correlationId, args);
+
+				// Process result and generate response
+				var response = new InvokeReply
+				{
+					Error = null,
+					ResultEmpty = result == null
+				};
+
+				if (result != null)
+				{
+					response.ResultJson = JsonConverter.ToJson(result);
+				}
+
+				return response;
+			}
+			catch (Exception ex)
+			{
+				// Handle unexpected exception
+				var err = new InvocationException(correlationId, "METHOD_FAILED", "Method " + method + " failed")
+					.Wrap(ex).WithDetails("method", method);
+
+				return CreateErrorResponse(err);
+			}
+		}
+
+		private InvokeReply CreateErrorResponse(Exception ex)
+		{
+			return new InvokeReply
+			{
+				Error = ObjectMapper.MapTo<ErrorDescription>(ErrorDescriptionFactory.Create(ex)),
+				ResultEmpty = true,
+				ResultJson = null
+			};
 		}
 	}
 }

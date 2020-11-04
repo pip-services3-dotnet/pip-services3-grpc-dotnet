@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
 using PipServices3.Commons.Config;
 using PipServices3.Commons.Errors;
 using PipServices3.Commons.Refer;
@@ -90,7 +92,6 @@ namespace PipServices3.Grpc.Services
 
         private IList<IRegisterable> _registrations = new List<IRegisterable>();
         private List<Interceptor> _interceptors = new List<Interceptor>();
-        private Dictionary<string, Func<string, Parameters, Task<object>>> _commandableMethods;
 
         /// <summary>
         /// Sets references to this endpoint's logger, counters, and connection resolver.
@@ -172,11 +173,24 @@ namespace PipServices3.Grpc.Services
 
             try
             {
+                ServerCredentials serverCredentials = ServerCredentials.Insecure;
+
+                if (protocol == "https")
+                {
+                    var sslKeyFile = credential.GetAsNullableString("ssl_key_file");
+                    var privateKey = new StreamReader(sslKeyFile).ReadToEnd();
+
+                    var sslCrtFile = credential.GetAsNullableString("ssl_crt_file");
+                    var certificate = new StreamReader(sslCrtFile).ReadToEnd();
+
+                    serverCredentials = new SslServerCredentials(new[] { new KeyCertificatePair(certificate, privateKey) });
+                }
+
                 _server = new Server
                 {
-                    Ports = { new ServerPort(host, port, ServerCredentials.Insecure) }
+                    Ports = { new ServerPort(host, port, serverCredentials) }
                 };
-
+                
                 _logger.Info(correlationId, "Opened gRPC service at {0}", _address);
                 
                 PerformRegistrations();
@@ -205,8 +219,6 @@ namespace PipServices3.Grpc.Services
         {
             if (_server != null)
             {
-                _commandableMethods = null;
-
                 // Eat exceptions
                 try
                 {
@@ -232,29 +244,8 @@ namespace PipServices3.Grpc.Services
             {
                 registration.Register();
             }
-
-            RegisterCommandableService();
         }
 
-        private void RegisterCommandableService()
-        {
-            if (_commandableMethods == null) return;
-
-            RegisterService(Commandable.Commandable.BindService(new CommandableGrpcServerService(_commandableMethods)));
-        }
-
-        /// <summary>
-        /// Registers a commandable method in this objects GRPC server (service) by the given name.,
-        /// </summary>
-        /// <param name="method">the GRPC method name.</param>
-        /// <param name="schema">the schema to use for parameter validation.</param>
-        /// <param name="action">the action to perform at the given route.</param>
-        public void RegisterCommandableMethod(string method, Schema schema, Func<string, Parameters, Task<object>> action)
-        {
-            _commandableMethods = _commandableMethods ?? new Dictionary<string, Func<string, Parameters, Task<object>>>();
-            _commandableMethods[method] = action;
-        }
-        
         public void RegisterService(ServerServiceDefinition serverServiceDefinition)
         {
             _server.Services.Add(serverServiceDefinition);
