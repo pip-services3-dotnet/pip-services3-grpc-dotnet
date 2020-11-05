@@ -23,8 +23,8 @@ namespace PipServices3.Grpc.Build
         /// </summary>
         public DefaultGrpcFactory()
         {
-            RegisterAsType(GrpcEndpointDescriptor, typeof(HttpEndpoint));
-            RegisterAsType(GrpcEndpoint3Descriptor, typeof(HttpEndpoint));
+            RegisterAsType(GrpcEndpointDescriptor, typeof(GrpcEndpoint));
+            RegisterAsType(GrpcEndpoint3Descriptor, typeof(GrpcEndpoint));
         }
     }
 }
