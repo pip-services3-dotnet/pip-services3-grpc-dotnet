@@ -24,7 +24,7 @@ namespace PipServices3.Grpc.Services
             _controller = _dependencyResolver.GetOneRequired<IDummyController>("controller");
         }
 
-        public async Task<DummiesPage> GetDummies(DummiesPageRequest request, ServerCallContext context)
+        public async Task<DummiesPage> GetDummiesAsync(DummiesPageRequest request, ServerCallContext context)
         {
             var correlationId = request.CorrelationId;
             var filter = new Commons.Data.FilterParams(request.Filter);
@@ -40,25 +40,25 @@ namespace PipServices3.Grpc.Services
             return response;
         }
 
-        public async Task<ProtoDummy> GetDummyById(DummyIdRequest request, ServerCallContext context)
+        public async Task<ProtoDummy> GetDummyByIdAsync(DummyIdRequest request, ServerCallContext context)
         {
             var item = await _controller.GetOneByIdAsync(request.CorrelationId, request.DummyId);
             return ConvertToPublic(item);
         }
 
-        public async Task<ProtoDummy> CreateDummy(DummyObjectRequest request, ServerCallContext context)
+        public async Task<ProtoDummy> CreateDummyAsync(DummyObjectRequest request, ServerCallContext context)
         {
             var item = await _controller.CreateAsync(request.CorrelationId, ConvertFromPublic(request.Dummy));
             return ConvertToPublic(item);
         }
 
-        public async Task<ProtoDummy> UpdateDummy(DummyObjectRequest request, ServerCallContext context)
+        public async Task<ProtoDummy> UpdateDummyAsync(DummyObjectRequest request, ServerCallContext context)
         {
             var item = await _controller.UpdateAsync(request.CorrelationId, ConvertFromPublic(request.Dummy));
             return ConvertToPublic(item);
         }
 
-        public async Task<ProtoDummy> DeleteDummyById(DummyIdRequest request, ServerCallContext context)
+        public async Task<ProtoDummy> DeleteDummyByIdAsync(DummyIdRequest request, ServerCallContext context)
         {
             var item = await _controller.DeleteByIdAsync(request.CorrelationId, request.DummyId);
             return ConvertToPublic(item);
@@ -88,11 +88,11 @@ namespace PipServices3.Grpc.Services
 
         protected override void OnRegister()
         {
-            RegisterMethod<DummiesPageRequest, DummiesPage>("get_dummies", GetDummies);
-            RegisterMethod<DummyIdRequest, ProtoDummy>("get_dummy_by_id", GetDummyById);
-            RegisterMethod<DummyObjectRequest, ProtoDummy>("create_dummy", CreateDummy);
-            RegisterMethod<DummyObjectRequest, ProtoDummy>("update_dummy", UpdateDummy);
-            RegisterMethod<DummyIdRequest, ProtoDummy>("delete_dummy_by_id", DeleteDummyById);
+            RegisterMethod<DummiesPageRequest, DummiesPage>("get_dummies", GetDummiesAsync);
+            RegisterMethod<DummyIdRequest, ProtoDummy>("get_dummy_by_id", GetDummyByIdAsync);
+            RegisterMethod<DummyObjectRequest, ProtoDummy>("create_dummy", CreateDummyAsync);
+            RegisterMethod<DummyObjectRequest, ProtoDummy>("update_dummy", UpdateDummyAsync);
+            RegisterMethod<DummyIdRequest, ProtoDummy>("delete_dummy_by_id", DeleteDummyByIdAsync);
         }
     }
 }

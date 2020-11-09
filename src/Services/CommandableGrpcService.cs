@@ -92,7 +92,7 @@ namespace PipServices3.Grpc.Services
 		/// </summary>
 		protected override void OnRegister()
 		{
-			RegisterMethod<InvokeRequest, InvokeReply>("invoke", Invoke);
+			RegisterMethod<InvokeRequest, InvokeReply>("invoke", InvokeAsync);
 			RegisterCommandableMethods();
 		}
 
@@ -117,7 +117,7 @@ namespace PipServices3.Grpc.Services
 			}
 		}
 
-		protected async Task<InvokeReply> Invoke(InvokeRequest request, ServerCallContext context)
+		protected async Task<InvokeReply> InvokeAsync(InvokeRequest request, ServerCallContext context)
 		{
 			var method = request.Method;
 			var correlationId = request.CorrelationId;
