@@ -1,6 +1,6 @@
 {
-    "name": "pip-services3-grpc",
+    "name": "pip-services3-grpc-dotnet",
     "registry": "pipdevs",
     "version": "3.0.1",
-    "build": "0"
+    "build": 0
 }
