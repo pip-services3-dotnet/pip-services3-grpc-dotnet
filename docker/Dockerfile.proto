@@ -6,14 +6,11 @@ WORKDIR /app
 
 COPY . .
 
-# Restore
+# Add protoc
 RUN apk update && \
     apk upgrade && \
     apk add protoc
 
-# Copy src
+# Generate
 RUN protoc --proto_path=src/Protos --csharp_out=src/Protos --csharp_opt=file_extension=.cs,base_namespace=PipServices3.Grpc.Services src/Protos/commandable.proto
 RUN protoc --proto_path=example/Protos --csharp_out=example/Protos --csharp_opt=file_extension=.cs,base_namespace=PipServices3.Grpc.Protos example/Protos/dummies.proto
-
-# Test
-CMD [ "dotnet", "test", "test/test.csproj" ]
