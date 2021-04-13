@@ -6,7 +6,7 @@
     <AssemblyName>PipServices3.Grpc</AssemblyName>
     <ApplicationIcon />
     <Win32Resource />
-    <Version>3.0.1</Version>
+    <Version>3.0.2</Version>
     <Authors>Sergey Seroukhov, Denis Kuznetsov</Authors>
     <Copyright>Conceptual Vision Consulting LLC. 2017-2020</Copyright>
     <Description>gRPC remote procedure calls for Pip.Services in .NET</Description>
