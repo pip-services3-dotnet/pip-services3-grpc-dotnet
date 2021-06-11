@@ -6,7 +6,7 @@
     <AssemblyName>PipServices3.Grpc</AssemblyName>
     <ApplicationIcon />
     <Win32Resource />
-    <Version>3.0.2</Version>
+    <Version>3.1.0</Version>
     <Authors>Sergey Seroukhov, Denis Kuznetsov</Authors>
     <Copyright>Conceptual Vision Consulting LLC. 2017-2020</Copyright>
     <Description>gRPC remote procedure calls for Pip.Services in .NET</Description>
@@ -35,7 +35,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Cors" Version="2.2.0" />
     <PackageReference Include="Microsoft.AspNetCore.ResponseCompression" Version="2.2.0" />
     <PackageReference Include="PipServices3.Commons" Version="3.1.2" />
-    <PackageReference Include="PipServices3.Components" Version="3.2.0" />
+    <PackageReference Include="PipServices3.Components" Version="3.2.1" />
     <PackageReference Include="PipServices3.Rpc" Version="3.3.23" />
   </ItemGroup>
 
